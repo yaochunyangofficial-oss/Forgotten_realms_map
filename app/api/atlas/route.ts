@@ -2,6 +2,7 @@ import { authClient, database } from '@/lib/supabase/server';
 import { initialData } from '@/lib/geography';
 import { validData } from '@/lib/validate';
 import { apiErrorText, AtlasApiError, classifySupabaseError, type ApiErrorCode } from '@/lib/api-errors';
+import { DEFAULT_FOG_STATE, isValidFogState, normalizeFogState, type FogState } from '@/lib/fog';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +40,7 @@ function fail(error: unknown, operation: string, fallback: ApiErrorCode) {
 async function campaignAccess(db: ReturnType<typeof database>, id: string, userId: string) {
   const { data: campaign, error } = await db
     .from('campaigns')
-    .select('id,owner,invite,data,revision')
+    .select('id,owner,invite,data,revision,fog')
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;
@@ -130,6 +131,9 @@ export async function GET(req: Request) {
       revision: campaign.revision,
       data,
       notes: Object.fromEntries(rows.map((note: { location: string; body: string }) => [note.location, note.body])),
+      fog: role === 'gm' || campaign.fog?.enabled
+        ? normalizeFogState(campaign.fog)
+        : { ...DEFAULT_FOG_STATE },
       mapObjects: objectRows
         .filter((object: { visibility: string; owner_id: string }) => role === 'gm'
           || object.visibility === 'shared'
@@ -163,23 +167,26 @@ export async function POST(req: Request) {
 
     if (action === 'create' || action === 'import') {
       let data = initialData;
+      let fog: FogState = { ...DEFAULT_FOG_STATE };
       let notes: Record<string, string> = {};
       if (action === 'import') {
         const backup = body.backup;
         if (backup?.format !== 'dnd-map-backup' || backup.version !== 1 || !validData(backup.data)
+          || (backup.fog !== undefined && !isValidFogState(backup.fog))
           || !backup.notes || typeof backup.notes !== 'object' || Array.isArray(backup.notes)
           || Object.entries(backup.notes).some(([id, value]) => !backup.data.places.some((place: { id: string }) => place.id === id)
             || typeof value !== 'string' || value.length > 20_000)) {
           throw new AtlasApiError('INVALID_REQUEST', 400);
         }
         data = backup.data;
+        if (backup.fog !== undefined) fog = normalizeFogState(backup.fog);
         notes = backup.notes;
       }
 
       const { data: campaign, error } = await db
         .from('campaigns')
-        .insert({ owner: user.id, data })
-        .select('id,invite,revision,data')
+        .insert({ owner: user.id, data, fog })
+        .select('id,invite,revision,data,fog')
         .single();
       if (error) throw error;
       if (!campaign) throw new AtlasApiError('CREATE_FAILED', 500);
@@ -196,7 +203,7 @@ export async function POST(req: Request) {
 
       // Return the created session data with the insert. The UI can enter the
       // new campaign immediately without relying on a second read request.
-      return answer({ id: campaign.id, role: 'gm', revision: campaign.revision, data: campaign.data, notes, invite: campaign.invite });
+      return answer({ id: campaign.id, role: 'gm', revision: campaign.revision, data: campaign.data, notes, fog: normalizeFogState(campaign.fog), invite: campaign.invite });
     }
 
     if (action === 'join') {
@@ -218,6 +225,19 @@ export async function POST(req: Request) {
 
     if (typeof body.id !== 'string' || !body.id) throw new AtlasApiError('INVALID_REQUEST', 400);
     const { campaign, role } = await campaignAccess(db, body.id, user.id);
+
+    if (action === 'fog') {
+      if (role !== 'gm') throw new AtlasApiError('PERMISSION_DENIED', 403);
+      if (!isValidFogState(body.fog)) throw new AtlasApiError('INVALID_REQUEST', 400);
+      const { data: rows, error } = await db.from('campaigns')
+        .update({ fog: body.fog })
+        .eq('id', body.id)
+        .eq('owner', user.id)
+        .select('fog');
+      if (error) throw error;
+      if (!rows.length) throw new AtlasApiError('PERMISSION_DENIED', 403);
+      return answer({ fog: normalizeFogState(rows[0].fog) });
+    }
 
     if (action === 'map-object') {
       const operation = body.operation;
@@ -293,7 +313,7 @@ export async function POST(req: Request) {
   } catch (error) {
     const fallback: ApiErrorCode = action === 'create' || action === 'import'
       ? 'CREATE_FAILED'
-      : action === 'save' || action === 'note' || action === 'map-object' ? 'SAVE_FAILED' : 'INTERNAL_ERROR';
+      : action === 'save' || action === 'note' || action === 'map-object' || action === 'fog' ? 'SAVE_FAILED' : 'INTERNAL_ERROR';
     return fail(error, action, fallback);
   }
 }

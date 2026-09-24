@@ -1,6 +1,7 @@
 import placeData from './places.json';
 import type {AtlasData,Point} from './types';
-export const MAP_HEIGHT=6600/10200*1000;
+export const MAP_WIDTH=1000;
+export const MAP_HEIGHT=6600/10200*MAP_WIDTH;
 export const sourceLinks={map:'https://www.dndbeyond.com/resources/1782-map-of-faerun',locations:'https://www.dndbeyond.com/sources/dnd/skt',coordinates:'https://www.aidedd.org/atlas/sword-coast'};
 export const initialData:AtlasData={places:placeData,factions:[],territories:[]};
 // Major named roads. Geometry is an approximation, not a survey. No implied ocean links.
