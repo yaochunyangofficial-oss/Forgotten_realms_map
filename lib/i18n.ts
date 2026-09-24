@@ -199,6 +199,19 @@ export const english:Record<string,string>={"登入":"Sign in","戰役已匯入"
   "點擊註記或 POI 刪除": "Tap a note or POI to delete",
   "橡皮擦：刪除註記與 POI": "Eraser: delete notes and POIs",
   "可控制玩家是否看見陣營區域。選取地點可指定所屬陣營；要修改疆界形狀，刪除原區域再重新圈選。": "Choose whether players can see faction areas. Assign a faction to a location; redraw an area to change its shape.",
+  "地圖路點": "Map waypoint",
+  "地圖新增路點": "Add map waypoint",
+  "地圖點擊新增路點": "Tap map to add waypoint",
+  "清除旅程": "Clear journey",
+  "選擇地點或直接在地圖新增路點，再為每一段選擇行進方式。": "Choose locations or add map waypoints, then set the mode for each segment.",
+  "路段": "Segment",
+  "無法計算": "Unavailable",
+  "主要道路": "Main road",
+  "越野": "Cross-country",
+  "大路距離": "Main-road distance",
+  "越野距離": "Cross-country distance",
+  "總距離": "Total distance",
+  "大路沿現有道路圖計算；越野按地圖比例直線計算。每段可獨立切換。": "Road segments follow the mapped road network; cross-country segments use direct map distance. Change each segment independently.",
   "版本": "Version"
 };
 export function translate(text:string,locale:Locale){if(locale==='zh')return text;const key=text.trim();return english[key]===undefined?text:text.replace(key,english[key]);}
