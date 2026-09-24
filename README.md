@@ -97,7 +97,7 @@ No new environment variables are required for Fog. Apply the Fog schema update b
 
 ## Error messages
 
-The API returns stable error codes and logs the operation plus sanitized provider diagnostics without logging request bodies, campaign content, notes, cookies, or keys. The UI distinguishes missing Supabase configuration, missing schema, authentication, backend/network, permission, not-found, and save/conflict failures.
+The API returns stable error codes and logs the operation plus sanitized provider diagnostics without logging request bodies, campaign content, notes, cookies, or keys. Missing tables, missing required columns (including `campaigns.fog`), schema-cache/backend failures, authentication, permission, not-found, and save/conflict failures have distinct classifications. For a new or updated deployment, apply the current schema and all files in `supabase/migrations/` so the database columns match the application version.
 
 ## Credits
 

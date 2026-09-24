@@ -24,7 +24,9 @@ function fail(error: unknown, operation: string, fallback: ApiErrorCode) {
     : classifySupabaseError(error, 'database');
   const code = classified.code === 'INTERNAL_ERROR' ? fallback : classified.code;
   const status = classified.code === 'INTERNAL_ERROR' ? 500 : classified.status;
-  const original = error as { code?: string; name?: string; message?: string } | null;
+  const original = error instanceof AtlasApiError
+    ? error.providerDiagnostic
+    : error as { code?: string; name?: string; message?: string } | null;
   // Log only provider diagnostics. Never log request bodies, campaign data,
   // notes, cookies, access tokens, or environment values.
   console.error('[api/atlas]', {
@@ -34,7 +36,7 @@ function fail(error: unknown, operation: string, fallback: ApiErrorCode) {
     errorName: original?.name,
     detail: original?.message?.slice(0, 240),
   });
-  return answer({ code, error: apiErrorText[code], ...(code === 'AUTH_REQUIRED' || code === 'AUTH_FAILURE' ? { signedOut: true } : {}) }, status);
+  return answer({ code, error: apiErrorText[code], ...(original?.code ? { providerCode: original.code } : {}), ...(code === 'AUTH_REQUIRED' || code === 'AUTH_FAILURE' ? { signedOut: true } : {}) }, status);
 }
 
 async function campaignAccess(db: ReturnType<typeof database>, id: string, userId: string) {

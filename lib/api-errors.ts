@@ -7,6 +7,7 @@ export type ApiErrorCode =
   | 'CAMPAIGN_NOT_FOUND'
   | 'MAP_OBJECT_NOT_FOUND'
   | 'SCHEMA_NOT_READY'
+  | 'SCHEMA_COLUMN_MISSING'
   | 'SAVE_CONFLICT'
   | 'INVALID_REQUEST'
   | 'INVITE_INVALID'
@@ -25,6 +26,7 @@ export const apiErrorText: Record<ApiErrorCode, string> = {
   CAMPAIGN_NOT_FOUND: '找不到此戰役。請確認連結或重新整理戰役清單。',
   MAP_OBJECT_NOT_FOUND: '找不到這個地圖註記，請重新載入戰役。',
   SCHEMA_NOT_READY: 'Supabase 資料表尚未建立。請先執行專案中的資料庫結構 SQL。',
+  SCHEMA_COLUMN_MISSING: 'Supabase 資料表缺少目前版本需要的欄位。請套用專案中的資料庫遷移 SQL。',
   SAVE_CONFLICT: '另一個視窗已更新戰役。請先保留你的編輯，再重新載入。',
   INVALID_REQUEST: '送出的資料不完整或格式錯誤。',
   INVITE_INVALID: '邀請碼無效，請確認後再試。',
@@ -36,12 +38,15 @@ export const apiErrorText: Record<ApiErrorCode, string> = {
 };
 
 export class AtlasApiError extends Error {
+  readonly providerDiagnostic?: { code?: string; status?: number; name?: string; message?: string };
   constructor(
     readonly code: ApiErrorCode,
     readonly status: number,
+    providerDiagnostic?: { code?: string; status?: number; name?: string; message?: string },
   ) {
     super(apiErrorText[code]);
     this.name = 'AtlasApiError';
+    this.providerDiagnostic = providerDiagnostic;
   }
 }
 
@@ -50,17 +55,23 @@ export function classifySupabaseError(error: unknown, context: 'auth' | 'databas
   const code = value?.code ?? '';
   const message = value?.message?.toLowerCase() ?? '';
 
-  if (code === '42P01' || code === 'PGRST205' || code === 'PGRST204') {
-    return new AtlasApiError('SCHEMA_NOT_READY', 503);
+  if (code === '42P01' || code === 'PGRST205') {
+    return new AtlasApiError('SCHEMA_NOT_READY', 503, value ?? undefined);
+  }
+  if (code === '42703' || code === 'PGRST204') {
+    return new AtlasApiError('SCHEMA_COLUMN_MISSING', 503, value ?? undefined);
+  }
+  if (code === 'PGRST002') {
+    return new AtlasApiError('BACKEND_UNAVAILABLE', 503, value ?? undefined);
   }
   if (code === '42501' || value?.status === 403 || /row-level security|permission denied/.test(message)) {
-    return new AtlasApiError('PERMISSION_DENIED', 403);
+    return new AtlasApiError('PERMISSION_DENIED', 403, value ?? undefined);
   }
   if (error instanceof TypeError || value?.name === 'AuthRetryableFetchError' || /fetch failed|network|timeout/.test(message)) {
-    return new AtlasApiError('BACKEND_UNAVAILABLE', 503);
+    return new AtlasApiError('BACKEND_UNAVAILABLE', 503, value ?? undefined);
   }
   if (context === 'auth' && (value?.status === 401 || value?.status === 400 || value?.name === 'AuthApiError')) {
-    return new AtlasApiError('AUTH_FAILURE', 401);
+    return new AtlasApiError('AUTH_FAILURE', 401, value ?? undefined);
   }
-  return new AtlasApiError(context === 'auth' ? 'AUTH_FAILURE' : 'INTERNAL_ERROR', context === 'auth' ? 401 : 500);
+  return new AtlasApiError(context === 'auth' ? 'AUTH_FAILURE' : 'INTERNAL_ERROR', context === 'auth' ? 401 : 500, value ?? undefined);
 }

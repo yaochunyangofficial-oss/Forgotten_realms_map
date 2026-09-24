@@ -184,6 +184,7 @@ export const english:Record<string,string>={"登入":"Sign in","戰役已匯入"
   "你沒有執行此操作的權限。": "You do not have permission to perform this action.",
   "找不到此戰役。請確認連結或重新整理戰役清單。": "Campaign not found. Check the link or reload your campaign list.",
   "Supabase 資料表尚未建立。請先執行專案中的資料庫結構 SQL。": "Supabase tables are not initialized. Run the project's database schema SQL first.",
+  "Supabase 資料表缺少目前版本需要的欄位。請套用專案中的資料庫遷移 SQL。": "A required Supabase column is missing. Apply the project's database migration SQL.",
   "另一個視窗已更新戰役。請先保留你的編輯，再重新載入。": "Another window updated the campaign. Keep a copy of your edits, then reload.",
   "送出的資料不完整或格式錯誤。": "The submitted data is incomplete or invalid.",
   "邀請碼無效，請確認後再試。": "Invalid invite code. Check it and try again.",
