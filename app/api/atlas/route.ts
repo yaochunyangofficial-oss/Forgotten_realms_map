@@ -2,6 +2,7 @@ import { authClient, database } from '@/lib/supabase/server';
 import { initialData } from '@/lib/geography';
 import { validData } from '@/lib/validate';
 import { apiErrorText, AtlasApiError, classifySupabaseError, type ApiErrorCode } from '@/lib/api-errors';
+import { DEFAULT_FOG_STATE, isValidFogState, normalizeFogState, type FogState } from '@/lib/fog';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +40,7 @@ function fail(error: unknown, operation: string, fallback: ApiErrorCode) {
 async function campaignAccess(db: ReturnType<typeof database>, id: string, userId: string) {
   const { data: campaign, error } = await db
     .from('campaigns')
-    .select('id,owner,invite,data,revision')
+    .select('id,owner,invite,data,revision,fog')
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;
@@ -55,6 +56,33 @@ async function campaignAccess(db: ReturnType<typeof database>, id: string, userI
   if (membershipError) throw membershipError;
   if (!membership) throw new AtlasApiError('PERMISSION_DENIED', 403);
   return { campaign, role: 'player' as const };
+}
+
+function mapObjectForClient(row: Record<string, any>, role: 'gm' | 'player', userId: string) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    x: row.x,
+    y: row.y,
+    radius: row.radius,
+    label: row.label,
+    content: row.content,
+    visibility: row.visibility,
+    editable: role === 'gm' || row.owner_id === userId,
+  };
+}
+
+function validMapObject(value: Record<string, any>) {
+  return (value.kind === 'note' || value.kind === 'poi')
+    && Number.isFinite(value.x) && value.x >= 0 && value.x <= 1000
+    && Number.isFinite(value.y) && value.y >= 0 && value.y <= 1000
+    && (value.kind === 'note'
+      ? value.radius == null
+      : Number.isFinite(value.radius) && value.radius >= 18 && value.radius <= 180)
+    && typeof value.label === 'string' && value.label.length <= 160
+    && typeof value.content === 'string' && value.content.length <= 20_000
+    && (value.kind !== 'note' || value.content.trim().length > 0)
+    && ['gm_private', 'player_private', 'shared'].includes(value.visibility);
 }
 
 export async function GET(req: Request) {
@@ -80,12 +108,16 @@ export async function GET(req: Request) {
     }
 
     const { campaign, role } = await campaignAccess(db, id, user.id);
-    const { data: rows, error } = await db
+    const [{ data: rows, error }, { data: objectRows, error: objectError }] = await Promise.all([
+      db
       .from('notes')
       .select('location,body')
       .eq('campaign', id)
-      .eq('user_id', user.id);
+      .eq('user_id', user.id),
+      db.from('map_objects').select('*').eq('campaign', id),
+    ]);
     if (error) throw error;
+    if (objectError) throw objectError;
 
     const data = role === 'gm'
       ? campaign.data
@@ -99,6 +131,14 @@ export async function GET(req: Request) {
       revision: campaign.revision,
       data,
       notes: Object.fromEntries(rows.map((note: { location: string; body: string }) => [note.location, note.body])),
+      fog: role === 'gm' || campaign.fog?.enabled
+        ? normalizeFogState(campaign.fog)
+        : { ...DEFAULT_FOG_STATE },
+      mapObjects: objectRows
+        .filter((object: { visibility: string; owner_id: string }) => role === 'gm'
+          || object.visibility === 'shared'
+          || (object.visibility === 'player_private' && object.owner_id === user.id))
+        .map((object: Record<string, any>) => mapObjectForClient(object, role, user.id)),
       ...(role === 'gm' ? { invite: campaign.invite } : {}),
     });
   } catch (error) {
@@ -127,23 +167,26 @@ export async function POST(req: Request) {
 
     if (action === 'create' || action === 'import') {
       let data = initialData;
+      let fog: FogState = { ...DEFAULT_FOG_STATE };
       let notes: Record<string, string> = {};
       if (action === 'import') {
         const backup = body.backup;
         if (backup?.format !== 'dnd-map-backup' || backup.version !== 1 || !validData(backup.data)
+          || (backup.fog !== undefined && !isValidFogState(backup.fog))
           || !backup.notes || typeof backup.notes !== 'object' || Array.isArray(backup.notes)
           || Object.entries(backup.notes).some(([id, value]) => !backup.data.places.some((place: { id: string }) => place.id === id)
             || typeof value !== 'string' || value.length > 20_000)) {
           throw new AtlasApiError('INVALID_REQUEST', 400);
         }
         data = backup.data;
+        if (backup.fog !== undefined) fog = normalizeFogState(backup.fog);
         notes = backup.notes;
       }
 
       const { data: campaign, error } = await db
         .from('campaigns')
-        .insert({ owner: user.id, data })
-        .select('id,invite,revision,data')
+        .insert({ owner: user.id, data, fog })
+        .select('id,invite,revision,data,fog')
         .single();
       if (error) throw error;
       if (!campaign) throw new AtlasApiError('CREATE_FAILED', 500);
@@ -160,7 +203,7 @@ export async function POST(req: Request) {
 
       // Return the created session data with the insert. The UI can enter the
       // new campaign immediately without relying on a second read request.
-      return answer({ id: campaign.id, role: 'gm', revision: campaign.revision, data: campaign.data, notes, invite: campaign.invite });
+      return answer({ id: campaign.id, role: 'gm', revision: campaign.revision, data: campaign.data, notes, fog: normalizeFogState(campaign.fog), invite: campaign.invite });
     }
 
     if (action === 'join') {
@@ -182,6 +225,61 @@ export async function POST(req: Request) {
 
     if (typeof body.id !== 'string' || !body.id) throw new AtlasApiError('INVALID_REQUEST', 400);
     const { campaign, role } = await campaignAccess(db, body.id, user.id);
+
+    if (action === 'fog') {
+      if (role !== 'gm') throw new AtlasApiError('PERMISSION_DENIED', 403);
+      if (!isValidFogState(body.fog)) throw new AtlasApiError('INVALID_REQUEST', 400);
+      const { data: rows, error } = await db.from('campaigns')
+        .update({ fog: body.fog })
+        .eq('id', body.id)
+        .eq('owner', user.id)
+        .select('fog');
+      if (error) throw error;
+      if (!rows.length) throw new AtlasApiError('PERMISSION_DENIED', 403);
+      return answer({ fog: normalizeFogState(rows[0].fog) });
+    }
+
+    if (action === 'map-object') {
+      const operation = body.operation;
+      if (!['create', 'update', 'delete'].includes(operation)) throw new AtlasApiError('INVALID_REQUEST', 400);
+      let existing: Record<string, any> | null = null;
+      if (operation !== 'create') {
+        if (typeof body.objectId !== 'string' || !body.objectId) throw new AtlasApiError('INVALID_REQUEST', 400);
+        const { data, error } = await db.from('map_objects').select('*')
+          .eq('id', body.objectId).eq('campaign', body.id).maybeSingle();
+        if (error) throw error;
+        existing = data;
+        if (!existing) throw new AtlasApiError('MAP_OBJECT_NOT_FOUND', 404);
+        if (role !== 'gm' && existing.owner_id !== user.id) throw new AtlasApiError('PERMISSION_DENIED', 403);
+      }
+      if (operation === 'delete') {
+        const { error } = await db.from('map_objects').delete().eq('id', body.objectId).eq('campaign', body.id);
+        if (error) throw error;
+        return answer({ ok: true, objectId: body.objectId });
+      }
+
+      const object = body.object;
+      if (!object || typeof object !== 'object' || !validMapObject(object)) throw new AtlasApiError('INVALID_REQUEST', 400);
+      if (existing && object.kind !== existing.kind) throw new AtlasApiError('INVALID_REQUEST', 400);
+      if (object.visibility === 'gm_private' && role !== 'gm') throw new AtlasApiError('PERMISSION_DENIED', 403);
+      const values = {
+        kind: object.kind,
+        x: object.x,
+        y: object.y,
+        radius: object.kind === 'poi' ? object.radius : null,
+        label: object.label,
+        content: object.content,
+        visibility: object.visibility,
+        updated_at: new Date().toISOString(),
+      };
+      const query = existing
+        ? db.from('map_objects').update(values).eq('id', body.objectId).eq('campaign', body.id).select('*').single()
+        : db.from('map_objects').insert({ ...values, campaign: body.id, owner_id: user.id }).select('*').single();
+      const { data: saved, error } = await query;
+      if (error) throw error;
+      if (!saved) throw new AtlasApiError('SAVE_FAILED', 500);
+      return answer({ mapObject: mapObjectForClient(saved, role, user.id) });
+    }
 
     if (action === 'note') {
       const allowedPlace = campaign.data.places.some((place: { id: string; hidden?: boolean }) =>
@@ -215,7 +313,7 @@ export async function POST(req: Request) {
   } catch (error) {
     const fallback: ApiErrorCode = action === 'create' || action === 'import'
       ? 'CREATE_FAILED'
-      : action === 'save' || action === 'note' ? 'SAVE_FAILED' : 'INTERNAL_ERROR';
+      : action === 'save' || action === 'note' || action === 'map-object' || action === 'fog' ? 'SAVE_FAILED' : 'INTERNAL_ERROR';
     return fail(error, action, fallback);
   }
 }
