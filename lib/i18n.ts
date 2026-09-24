@@ -206,7 +206,7 @@ export const english:Record<string,string>={"登入":"Sign in","戰役已匯入"
   "選擇地點或直接在地圖新增路點，再為每一段選擇行進方式。": "Choose locations or add map waypoints, then set the mode for each segment.",
   "路段": "Segment",
   "無法計算": "Unavailable",
-  "主要道路": "Main road",
+  "主要道路": "Main Road",
   "越野": "Cross-country",
   "大路距離": "Main-road distance",
   "越野距離": "Cross-country distance",
