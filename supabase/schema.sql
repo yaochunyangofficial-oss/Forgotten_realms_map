@@ -29,13 +29,36 @@ create table if not exists public.notes (
   primary key (campaign, user_id, location)
 );
 
+-- Independent campaign knowledge markers. Coordinates are map-space values,
+-- not viewport pixels; kind-specific fields keep the table extensible without
+-- binding markers to place or faction records.
+create table if not exists public.map_objects (
+  id uuid primary key default gen_random_uuid(),
+  campaign uuid not null references public.campaigns(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  kind text not null check (kind in ('note', 'poi')),
+  x double precision not null check (x >= 0 and x <= 1000),
+  y double precision not null check (y >= 0 and y <= 1000),
+  radius double precision check (radius is null or (radius >= 18 and radius <= 180)),
+  label text not null default '' check (length(label) <= 160),
+  content text not null default '' check (length(content) <= 20000),
+  visibility text not null check (visibility in ('gm_private', 'player_private', 'shared')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (kind = 'poi' or radius is null),
+  check (kind <> 'note' or length(trim(content)) > 0)
+);
+
 create index if not exists campaigns_owner_idx on public.campaigns(owner);
 create index if not exists memberships_user_idx on public.memberships(user_id);
 create index if not exists notes_user_idx on public.notes(user_id);
+create index if not exists map_objects_campaign_idx on public.map_objects(campaign);
+create index if not exists map_objects_owner_idx on public.map_objects(campaign, owner_id);
 
 alter table public.campaigns enable row level security;
 alter table public.memberships enable row level security;
 alter table public.notes enable row level security;
+alter table public.map_objects enable row level security;
 
 -- Remove any old policies on these app tables before installing the explicit
 -- deny policy. Server requests use a separate privileged client with no user
@@ -48,7 +71,7 @@ begin
     select schemaname, tablename, policyname
     from pg_policies
     where schemaname = 'public'
-      and tablename in ('campaigns', 'memberships', 'notes')
+      and tablename in ('campaigns', 'memberships', 'notes', 'map_objects')
   loop
     execute format('drop policy if exists %I on %I.%I', policy_row.policyname, policy_row.schemaname, policy_row.tablename);
   end loop;
@@ -64,7 +87,10 @@ create policy memberships_deny_direct_access
 create policy notes_deny_direct_access
   on public.notes for all to anon, authenticated
   using (false) with check (false);
+create policy map_objects_deny_direct_access
+  on public.map_objects for all to anon, authenticated
+  using (false) with check (false);
 
-revoke all privileges on public.campaigns, public.memberships, public.notes from public, anon, authenticated;
+revoke all privileges on public.campaigns, public.memberships, public.notes, public.map_objects from public, anon, authenticated;
 grant usage on schema public to service_role;
-grant select, insert, update, delete on public.campaigns, public.memberships, public.notes to service_role;
+grant select, insert, update, delete on public.campaigns, public.memberships, public.notes, public.map_objects to service_role;

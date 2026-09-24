@@ -3,4 +3,7 @@ export type Place={id:string;name:string;zh?:string;x:number;y:number;kind:strin
 export type Faction={id:string;name:string;color:string};
 export type Territory={id:string;faction:string;points:Point[]};
 export type AtlasData={places:Place[];factions:Faction[];territories:Territory[]};
+export type MapObjectKind='note'|'poi';
+export type MapObjectVisibility='gm_private'|'player_private'|'shared';
+export type MapObject={id:string;kind:MapObjectKind;x:number;y:number;radius:number|null;label:string;content:string;visibility:MapObjectVisibility;editable:boolean};
 export type Session={id:string;role:'gm'|'player';revision:number;data:AtlasData;notes:Record<string,string>;invite?:string};
