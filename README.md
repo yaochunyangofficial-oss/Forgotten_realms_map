@@ -102,3 +102,7 @@ The API returns stable error codes and logs the operation plus sanitized provide
 ## Credits
 
 Base map © Wizards of the Coast / Mike Schley. Source links are shown in the app. This is an unofficial fan utility; map asset rights remain with their respective owners.
+
+## Map layer controls
+
+The map toolbar offers Note, POI, and Eraser. Select Note or POI and click/tap a map position, including a fogged area, then save the marker. Select Eraser and click/tap an existing note or POI to delete it from Supabase. Eraser does not affect other map layers. Fog is visual in normal mode; Paint Fog and Reveal capture input only while selected. In the GM Factions tab, the Show faction areas to players checkbox changes campaign visibility; save campaign changes in the header. Existing campaigns default to visible faction areas. This setting is stored in the existing campaigns.data JSON and needs no SQL migration.

@@ -123,7 +123,7 @@ export async function GET(req: Request) {
 
     const data = role === 'gm'
       ? campaign.data
-      : { ...campaign.data, places: campaign.data.places
+      : { ...campaign.data, territories: campaign.data.showFactionsToPlayers === false ? [] : campaign.data.territories, places: campaign.data.places
         .filter((place: { hidden?: boolean }) => !place.hidden)
         .map(({ gmNotes: _gmNotes, ...place }: { gmNotes?: string; [key: string]: unknown }) => place) };
 

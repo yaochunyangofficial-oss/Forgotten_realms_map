@@ -195,6 +195,10 @@ export const english:Record<string,string>={"登入":"Sign in","戰役已匯入"
   "請求來源不符。請重新載入網站後再試。": "Request origin mismatch. Reload the site and try again.",
   "無法連線到網站伺服器，請檢查網路後重試。": "Unable to reach the app server. Check your connection and try again.",
   "登入失敗，請檢查帳號設定或重新輸入密碼。": "Sign-in failed. Check your account setup or re-enter your password.",
+  "向玩家顯示陣營區域": "Show faction areas to players",
+  "點擊註記或 POI 刪除": "Tap a note or POI to delete",
+  "橡皮擦：刪除註記與 POI": "Eraser: delete notes and POIs",
+  "可控制玩家是否看見陣營區域。選取地點可指定所屬陣營；要修改疆界形狀，刪除原區域再重新圈選。": "Choose whether players can see faction areas. Assign a faction to a location; redraw an area to change its shape.",
   "版本": "Version"
 };
 export function translate(text:string,locale:Locale){if(locale==='zh')return text;const key=text.trim();return english[key]===undefined?text:text.replace(key,english[key]);}
