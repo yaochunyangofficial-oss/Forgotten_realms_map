@@ -1,86 +1,90 @@
-# DND Map — made by Martin Y — v0.2.0
+# DND Map v0.2.0
 
-Traditional Chinese / English interactive Faerûn campaign map. Next.js App Router,
-React, Supabase Auth + Postgres; ready to connect to a GitHub repository and Vercel.
+Bilingual Traditional Chinese / English Faerûn campaign map built with Next.js App Router, React, Supabase Auth, and Supabase Postgres. The Vercel app is independent of the former ChatGPT Site; campaign data starts empty in a new Supabase project.
 
-## 本次狀態
+## Features
 
-- 中英文介面、記住語言選擇、地名與路線訊息切換。
-- GM 編輯資訊、私密筆記與陣營疆界；玩家只能編輯自己的筆記。
-- 已移除 ChatGPT 平台登入與 Cloudflare D1 依賴。
-- **尚未部署到 Vercel、尚未連接實際 Supabase、尚未搬入線上戰役資料。**
-- 舊版 Sites 網站繼續保有原資料。不要刪除它，直到匯入與權限驗證完成。
-- 混合路段模式、token/sticker、fog of war 留待後續版本。
+- Explore the Sword Coast map, search locations, view place notes, and plan road or wilderness routes.
+- GM campaigns with editable place data, private GM notes, factions, territories, hidden locations, and revision-checked saves.
+- Player membership through invite codes and per-player private notes.
+- Import/export JSON campaign backups, bilingual UI, and saved language preference.
 
-## Set up / 設定
+## Local development
 
-1. Create a Supabase project you own. Execute `supabase/schema.sql` in its SQL editor.
-2. In Supabase Authentication → Users, create the GM and player users with their
-   chosen emails/passwords (the app currently supports password sign-in, not public sign-up).
-3. Copy `.env.example` to `.env.local` and set its three values from that project.
-   `SUPABASE_SERVICE_ROLE_KEY` is server-only; never expose it in browser code or commit it.
-4. Node 22.13+ and pnpm 11.25: `pnpm install --frozen-lockfile`, then `pnpm dev`.
-5. Validate with `pnpm typecheck`, `pnpm test`, and `pnpm build`.
-6. Push this folder to a new/private GitHub repository. In Vercel, import that repo
-   as a Next.js project and configure the same three environment variables for the
-   intended deployment environments. Deploy, then verify login/create/join/save on the live URL.
+Requirements: Node.js 22.13+ and pnpm 11.25.
 
 ```sh
-git init -b main
-git add .
-git commit -m "DND Map v0.2.0: bilingual interface and Vercel migration"
-git remote add origin https://github.com/YOUR_ACCOUNT/YOUR_REPOSITORY.git
-git push -u origin main
+pnpm install --frozen-lockfile
+Copy-Item .env.example .env.local
 ```
 
-The repository contains no real credentials or campaign backups. Keep backups out of Git.
+Fill the values in `.env.local` as described under [Supabase setup](#supabase-setup). Then run:
 
-## Existing campaign migration / 既有戰役搬移
+```sh
+pnpm dev
+```
 
-1. On the original Sites map, sign in as the GM and select **匯出戰役備份**.
-   This exports the current map, factions, territory polygons, GM notes, and the
-   signed-in user's notes. It includes unsaved map edits currently on screen.
-2. On the new app, sign in and select **匯入戰役備份**. Import creates a new campaign
-   owned by this signed-in user and issues a new invitation code. It does not
-   overwrite the original campaign.
-3. Check location count, notes and territories before inviting players.
-4. Existing ChatGPT membership identities and other users' personal notes cannot
-   be mapped automatically to Supabase identities. Re-invite players with the new
-   code. Other users' private notes are not included in the GM's backup.
+The app is available at `http://localhost:3000`.
 
-The original map's baked-in printed geographic names are English in both modes;
-interactive labels and the app interface switch languages. Custom notes and faction
-names are user content and are never machine-translated.
+## Fresh Supabase setup
 
-## Security model
+Use a new Supabase project for a clean test deployment. The app does not need existing campaign data.
 
-Next.js verifies the Supabase identity using `auth.getUser()` on each API request.
-The server enforces ownership and membership. Player responses omit hidden places,
-GM notes and invitation codes. Notes are scoped to the authenticated user.
-Postgres tables use RLS with direct `anon`/`authenticated` access revoked; only the
-server service role can access them. Save uses optimistic revision checks.
-Imports validate structure and regenerate ownership/invitation metadata.
+### 1. Initialize the database
+
+In Supabase Dashboard → **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql) once. It creates:
+
+- `public.campaigns`: GM owner, invite UUID, complete map JSON, revision, creation time.
+- `public.memberships`: campaign-to-player relationship.
+- `public.notes`: per-user place notes.
+
+RLS is enabled on all three tables. Explicit deny policies and revoked table grants prevent `anon` and `authenticated` clients from querying or changing campaign data directly. The Next.js server checks the signed-in Supabase user and campaign owner/membership before it uses its server-only secret/service-role key. Keep that key only in server environment variables; never send it to browser code. Do not add direct Data API policies unless the application is redesigned to enforce the same GM/player privacy rules in SQL.
+
+### 2. Configure Supabase Auth
+
+In Supabase Dashboard → **Authentication → Sign In / Providers**, enable **Email**. The app supports email/password sign-in and account creation.
+
+In **Authentication → URL Configuration**:
+
+- Set **Site URL** to the app origin, such as `http://localhost:3000` during local development or your Vercel production URL after deployment.
+- Add callback URLs to **Redirect URLs**: `http://localhost:3000/auth/callback`, your production URL ending in `/auth/callback`, and any Vercel preview URL patterns you plan to use.
+- Keep email confirmation enabled for production and configure reliable email delivery. A new user follows the confirmation link before signing in. For a private test project, you may turn confirmation off if you want new accounts to sign in immediately.
+
+The callback exchanges Supabase’s one-time code for the authenticated cookie session. Campaign API requests use `auth.getUser()` to verify that session; no account or campaign owner is inferred from client input.
+
+### 3. Set environment variables
+
+Copy `.env.example` to `.env.local` for local use. Get the project URL, publishable key, and secret key from Supabase Dashboard → **Project Settings → API Keys**.
+
+| Variable | Required | Used for |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL. |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes | Browser-safe key used by the server-side Auth client. The legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` is still accepted. |
+| `SUPABASE_SECRET_KEY` | Yes | Server-only elevated database access. The legacy `SUPABASE_SERVICE_ROLE_KEY` JWT is also accepted. |
+| `NEXT_PUBLIC_SITE_URL` | No | Preferred app origin for email confirmation callbacks; when unset, the request origin is used. |
+
+Never commit `.env.local`, a Supabase secret/service-role key, user passwords, or real credentials. The repository’s `.gitignore` excludes `.env*` except `.env.example`.
+
+### 4. Configure Vercel
+
+Import `yaochunyangofficial-oss/Forgotten_realms_map` as a Next.js project. In Vercel → **Project Settings → Environment Variables**, add the first three variables above (including the server-only `SUPABASE_SECRET_KEY`) to the intended **Development**, **Preview**, and **Production** environments. Set `NEXT_PUBLIC_SITE_URL` to the corresponding app origin if using it. Do not give the secret key a `NEXT_PUBLIC_` prefix. Redeploy after changing environment variables.
+
+After deployment, open `/login`, create an account, and sign in. With an empty database, the map home offers **Create my GM campaign**. Creation returns the new campaign’s map, revision, and invite code in the same response, so the user enters it without a follow-up load. The invite code is shown in the GM sidebar. A player creates their own account, signs in, enters that code, and joins. The app can only persist campaigns after the schema and all required environment variables are configured.
+
+## Verification
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+The automated API tests use an in-memory Supabase-shaped adapter. They cover authentication, create → read → update → reload persistence, revision conflicts, player joining, private notes, hidden places, authorization, and backup import. They do not prove a particular Supabase project’s keys, schema, email delivery, RLS state, or Vercel settings; verify those with the live checklist above.
+
+## Error messages
+
+The API returns stable error codes and logs the operation plus sanitized provider diagnostics without logging request bodies, campaign content, notes, cookies, or keys. The UI distinguishes missing Supabase configuration, missing schema, authentication, backend/network, permission, not-found, and save/conflict failures.
 
 ## Credits
 
-Base map © Wizards of the Coast / Mike Schley. Source links are shown in the app.
-This is an unofficial fan utility. Map asset rights remain with their respective owners.
-
-## References
-
-- https://vercel.com/docs/frameworks/full-stack/nextjs
-- https://supabase.com/docs/guides/auth/server-side
-- https://supabase.com/docs/reference/javascript/auth-getuser
-
-## 驗證紀錄 / Verification
-
-- Next.js production build and TypeScript checks passed.
-- API tests passed with an in-memory Supabase query mock: unauthenticated access,
-  outsider access, GM/player isolation, private notes, hidden locations, revision
-  conflicts, backup import and regenerated invite codes.
-- Original Sites browser preview: Chinese/English toggle, language persistence after
-  reload, English place search/details and route output checked.
-- Live Supabase authentication, SQL schema and Vercel deployment have not yet been
-  exercised because no target resources/credentials are accessible in this session.
-- Connected GitHub returned no repositories; connected Vercel returned no teams,
-  and its deployment operation returned `Tool deploy_to_vercel not found`.
+Base map © Wizards of the Coast / Mike Schley. Source links are shown in the app. This is an unofficial fan utility; map asset rights remain with their respective owners.

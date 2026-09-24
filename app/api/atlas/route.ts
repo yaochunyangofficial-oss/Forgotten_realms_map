@@ -1,23 +1,221 @@
-import {authClient,database} from '@/lib/supabase/server';
-import {initialData} from '@/lib/geography';
-import {validData} from '@/lib/validate';
-export const dynamic='force-dynamic';
-function answer(data:unknown,status=200){return Response.json(data,{status,headers:{'Cache-Control':'no-store'}})}
-async function identity(){const client=await authClient();const {data:{user}}=await client.auth.getUser();return user;}
-async function access(id:string,user:string){const db=database();const {data:c,error}=await db.from('campaigns').select('*').eq('id',id).maybeSingle();if(error)throw error;if(!c)return null;if(c.owner===user)return {...c,role:'gm'};const {data:m,error:e}=await db.from('memberships').select('user_id').eq('campaign',id).eq('user_id',user).maybeSingle();if(e)throw e;return m?{...c,role:'player'}:null;}
-export async function GET(req:Request){try{const u=await identity();if(!u)return answer({error:'請先登入以載入戰役',signedOut:true},401);const db=database(),id=new URL(req.url).searchParams.get('id');if(!id){const own=await db.from('campaigns').select('id').eq('owner',u.id);const joined=await db.from('memberships').select('campaign').eq('user_id',u.id);if(own.error||joined.error)throw own.error||joined.error;const campaigns=[...own.data.map(c=>({id:c.id,role:'gm'})),...joined.data.filter(m=>!own.data.some(c=>c.id===m.campaign)).map(m=>({id:m.campaign,role:'player'}))];return answer({campaigns});}const c=await access(id,u.id);if(!c)return answer({error:'無權存取此戰役'},403);const d=c.data;if(c.role!=='gm')d.places=d.places.filter((p:any)=>!p.hidden).map(({gmNotes,...p}:any)=>p);const notes=await db.from('notes').select('location,body').eq('campaign',id).eq('user_id',u.id);if(notes.error)throw notes.error;return answer({id,role:c.role,revision:c.revision,data:d,notes:Object.fromEntries(notes.data.map(n=>[n.location,n.body])),...(c.role==='gm'?{invite:c.invite}:{})});}catch(e){console.error('Campaign load failed');return answer({error:'載入失敗，請稍後重試'},503);}}
-export async function POST(req:Request){try{const origin=req.headers.get('origin');if(origin&&origin!==new URL(req.url).origin)return answer({error:'來源不符'},403);const u=await identity();if(!u)return answer({error:'請先登入'},401);const text=await req.text();if(text.length>1500000)return answer({error:'內容太大'},413);const body=JSON.parse(text),db=database();
- if(body.action==='create'||body.action==='import'){
-  let data=initialData;let notes:Record<string,string>={};
-  if(body.action==='import'){const b=body.backup;if(b?.format!=='dnd-map-backup'||b.version!==1||!validData(b.data)||!b.notes||typeof b.notes!=='object'||Array.isArray(b.notes)||Object.entries(b.notes).some(([id,value])=>!b.data.places.some((p:any)=>p.id===id)||typeof value!=='string'||value.length>20000))return answer({error:'備份格式不符'},400);data=b.data;notes=b.notes;}
-  const {data:c,error}=await db.from('campaigns').insert({owner:u.id,data}).select('id').single();if(error)throw error;
-  if(Object.keys(notes).length){const {error:e}=await db.from('notes').insert(Object.entries(notes).map(([location,body])=>({campaign:c.id,user_id:u.id,location,body})));if(e){await db.from('campaigns').delete().eq('id',c.id).eq('owner',u.id);throw e;}}
-  return answer({id:c.id});
- }
- if(body.action==='join'){const {data:c,error}=await db.from('campaigns').select('id').eq('invite',String(body.invite||'')).maybeSingle();if(error||!c)return answer({error:'邀請碼無效'},404);const {error:e}=await db.from('memberships').upsert({campaign:c.id,user_id:u.id},{onConflict:'campaign,user_id',ignoreDuplicates:true});if(e)throw e;return answer({id:c.id});}
- if(typeof body.id!=='string')return answer({error:'缺少戰役'},400);const c=await access(body.id,u.id);if(!c)return answer({error:'無權存取此戰役'},403);
- if(body.action==='note'){if(typeof body.body!=='string'||body.body.length>20000||!c.data.places.some((p:any)=>p.id===body.location&&(c.role==='gm'||!p.hidden)))return answer({error:'筆記或地點無效'},400);const {error}=await db.from('notes').upsert({campaign:body.id,user_id:u.id,location:body.location,body:body.body},{onConflict:'campaign,user_id,location'});if(error)throw error;return answer({ok:true});}
- if(c.role!=='gm')return answer({error:'只有 GM 可以編輯戰役資料'},403);
- if(body.action==='save'){if(!validData(body.data)||!Number.isInteger(body.revision))return answer({error:'地圖資料格式不符'},400);const {data:rows,error}=await db.from('campaigns').update({data:body.data,revision:body.revision+1}).eq('id',body.id).eq('owner',u.id).eq('revision',body.revision).select('revision');if(error)throw error;if(!rows.length)return answer({error:'另一個視窗已更新地圖。請先保留你的編輯，再重新載入。'},409);return answer({revision:rows[0].revision});}
- return answer({error:'操作不存在'},400);
- }catch(e){console.error('Campaign mutation failed');return answer({error:'儲存失敗，編輯內容仍保留在畫面上，請重試'},503);}}
+import { authClient, database } from '@/lib/supabase/server';
+import { initialData } from '@/lib/geography';
+import { validData } from '@/lib/validate';
+import { apiErrorText, AtlasApiError, classifySupabaseError, type ApiErrorCode } from '@/lib/api-errors';
+
+export const dynamic = 'force-dynamic';
+
+function answer(data: unknown, status = 200) {
+  return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
+}
+
+async function identity() {
+  const client = await authClient();
+  const { data, error } = await client.auth.getUser();
+  if (error) throw classifySupabaseError(error, 'auth');
+  if (!data.user) throw new AtlasApiError('AUTH_REQUIRED', 401);
+  return data.user;
+}
+
+function fail(error: unknown, operation: string, fallback: ApiErrorCode) {
+  const classified = error instanceof AtlasApiError
+    ? error
+    : classifySupabaseError(error, 'database');
+  const code = classified.code === 'INTERNAL_ERROR' ? fallback : classified.code;
+  const status = classified.code === 'INTERNAL_ERROR' ? 500 : classified.status;
+  const original = error as { code?: string; name?: string; message?: string } | null;
+  // Log only provider diagnostics. Never log request bodies, campaign data,
+  // notes, cookies, access tokens, or environment values.
+  console.error('[api/atlas]', {
+    operation,
+    code,
+    providerCode: original?.code,
+    errorName: original?.name,
+    detail: original?.message?.slice(0, 240),
+  });
+  return answer({ code, error: apiErrorText[code], ...(code === 'AUTH_REQUIRED' || code === 'AUTH_FAILURE' ? { signedOut: true } : {}) }, status);
+}
+
+async function campaignAccess(db: ReturnType<typeof database>, id: string, userId: string) {
+  const { data: campaign, error } = await db
+    .from('campaigns')
+    .select('id,owner,invite,data,revision')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!campaign) throw new AtlasApiError('CAMPAIGN_NOT_FOUND', 404);
+  if (campaign.owner === userId) return { campaign, role: 'gm' as const };
+
+  const { data: membership, error: membershipError } = await db
+    .from('memberships')
+    .select('user_id')
+    .eq('campaign', id)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (membershipError) throw membershipError;
+  if (!membership) throw new AtlasApiError('PERMISSION_DENIED', 403);
+  return { campaign, role: 'player' as const };
+}
+
+export async function GET(req: Request) {
+  try {
+    const user = await identity();
+    const db = database();
+    const id = new URL(req.url).searchParams.get('id');
+
+    if (!id) {
+      const [own, joined] = await Promise.all([
+        db.from('campaigns').select('id').eq('owner', user.id),
+        db.from('memberships').select('campaign').eq('user_id', user.id),
+      ]);
+      if (own.error) throw own.error;
+      if (joined.error) throw joined.error;
+      const campaigns = [
+        ...own.data.map((campaign: { id: string }) => ({ id: campaign.id, role: 'gm' })),
+        ...joined.data
+          .filter((membership: { campaign: string }) => !own.data.some((campaign: { id: string }) => campaign.id === membership.campaign))
+          .map((membership: { campaign: string }) => ({ id: membership.campaign, role: 'player' })),
+      ];
+      return answer({ campaigns });
+    }
+
+    const { campaign, role } = await campaignAccess(db, id, user.id);
+    const { data: rows, error } = await db
+      .from('notes')
+      .select('location,body')
+      .eq('campaign', id)
+      .eq('user_id', user.id);
+    if (error) throw error;
+
+    const data = role === 'gm'
+      ? campaign.data
+      : { ...campaign.data, places: campaign.data.places
+        .filter((place: { hidden?: boolean }) => !place.hidden)
+        .map(({ gmNotes: _gmNotes, ...place }: { gmNotes?: string; [key: string]: unknown }) => place) };
+
+    return answer({
+      id,
+      role,
+      revision: campaign.revision,
+      data,
+      notes: Object.fromEntries(rows.map((note: { location: string; body: string }) => [note.location, note.body])),
+      ...(role === 'gm' ? { invite: campaign.invite } : {}),
+    });
+  } catch (error) {
+    if (error instanceof AtlasApiError) return fail(error, 'load', 'LOAD_FAILED');
+    if ((error as { status?: number } | null)?.status === 401) return fail(error, 'load', 'LOAD_FAILED');
+    return fail(error, 'load', 'LOAD_FAILED');
+  }
+}
+
+export async function POST(req: Request) {
+  let action = 'unknown';
+  try {
+    const origin = req.headers.get('origin');
+    if (origin && origin !== new URL(req.url).origin) throw new AtlasApiError('ORIGIN_MISMATCH', 403);
+    const user = await identity();
+    const text = await req.text();
+    if (text.length > 1_500_000) throw new AtlasApiError('INVALID_REQUEST', 413);
+    let body: Record<string, any>;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      throw new AtlasApiError('INVALID_REQUEST', 400);
+    }
+    action = typeof body.action === 'string' ? body.action : 'unknown';
+    const db = database();
+
+    if (action === 'create' || action === 'import') {
+      let data = initialData;
+      let notes: Record<string, string> = {};
+      if (action === 'import') {
+        const backup = body.backup;
+        if (backup?.format !== 'dnd-map-backup' || backup.version !== 1 || !validData(backup.data)
+          || !backup.notes || typeof backup.notes !== 'object' || Array.isArray(backup.notes)
+          || Object.entries(backup.notes).some(([id, value]) => !backup.data.places.some((place: { id: string }) => place.id === id)
+            || typeof value !== 'string' || value.length > 20_000)) {
+          throw new AtlasApiError('INVALID_REQUEST', 400);
+        }
+        data = backup.data;
+        notes = backup.notes;
+      }
+
+      const { data: campaign, error } = await db
+        .from('campaigns')
+        .insert({ owner: user.id, data })
+        .select('id,invite,revision,data')
+        .single();
+      if (error) throw error;
+      if (!campaign) throw new AtlasApiError('CREATE_FAILED', 500);
+
+      if (Object.keys(notes).length) {
+        const { error: notesError } = await db.from('notes').insert(
+          Object.entries(notes).map(([location, body]) => ({ campaign: campaign.id, user_id: user.id, location, body })),
+        );
+        if (notesError) {
+          await db.from('campaigns').delete().eq('id', campaign.id).eq('owner', user.id);
+          throw notesError;
+        }
+      }
+
+      // Return the created session data with the insert. The UI can enter the
+      // new campaign immediately without relying on a second read request.
+      return answer({ id: campaign.id, role: 'gm', revision: campaign.revision, data: campaign.data, notes, invite: campaign.invite });
+    }
+
+    if (action === 'join') {
+      if (typeof body.invite !== 'string' || !body.invite.trim()) throw new AtlasApiError('INVITE_INVALID', 404);
+      const { data: campaign, error } = await db
+        .from('campaigns')
+        .select('id')
+        .eq('invite', body.invite.trim())
+        .maybeSingle();
+      if (error) throw error;
+      if (!campaign) throw new AtlasApiError('INVITE_INVALID', 404);
+      const { error: joinError } = await db.from('memberships').upsert(
+        { campaign: campaign.id, user_id: user.id },
+        { onConflict: 'campaign,user_id', ignoreDuplicates: true },
+      );
+      if (joinError) throw joinError;
+      return answer({ id: campaign.id });
+    }
+
+    if (typeof body.id !== 'string' || !body.id) throw new AtlasApiError('INVALID_REQUEST', 400);
+    const { campaign, role } = await campaignAccess(db, body.id, user.id);
+
+    if (action === 'note') {
+      const allowedPlace = campaign.data.places.some((place: { id: string; hidden?: boolean }) =>
+        place.id === body.location && (role === 'gm' || !place.hidden));
+      if (typeof body.body !== 'string' || body.body.length > 20_000 || !allowedPlace) {
+        throw new AtlasApiError('INVALID_REQUEST', 400);
+      }
+      const { error } = await db.from('notes').upsert(
+        { campaign: body.id, user_id: user.id, location: body.location, body: body.body },
+        { onConflict: 'campaign,user_id,location' },
+      );
+      if (error) throw error;
+      return answer({ ok: true });
+    }
+
+    if (role !== 'gm') throw new AtlasApiError('PERMISSION_DENIED', 403);
+    if (action === 'save') {
+      if (!validData(body.data) || !Number.isInteger(body.revision)) throw new AtlasApiError('INVALID_REQUEST', 400);
+      const { data: rows, error } = await db
+        .from('campaigns')
+        .update({ data: body.data, revision: body.revision + 1 })
+        .eq('id', body.id)
+        .eq('owner', user.id)
+        .eq('revision', body.revision)
+        .select('revision');
+      if (error) throw error;
+      if (!rows.length) throw new AtlasApiError('SAVE_CONFLICT', 409);
+      return answer({ revision: rows[0].revision });
+    }
+    throw new AtlasApiError('INVALID_REQUEST', 400);
+  } catch (error) {
+    const fallback: ApiErrorCode = action === 'create' || action === 'import'
+      ? 'CREATE_FAILED'
+      : action === 'save' || action === 'note' ? 'SAVE_FAILED' : 'INTERNAL_ERROR';
+    return fail(error, action, fallback);
+  }
+}
