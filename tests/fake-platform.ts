@@ -1,7 +1,7 @@
 import { AtlasApiError } from '../lib/api-errors';
 
 export let user: string | null = 'gm';
-const tables: Record<string, any[]> = { campaigns: [], memberships: [], notes: [] };
+const tables: Record<string, any[]> = { campaigns: [], memberships: [], notes: [], map_objects: [] };
 let configured = true;
 let nextDatabaseError: { code: string; message: string } | null = null;
 let authFailure: { code: string; status: number; name: string; message: string } | null = null;
@@ -66,7 +66,9 @@ class Query {
           } else {
             const row = this.table === 'campaigns'
               ? { id: crypto.randomUUID(), invite: crypto.randomUUID(), revision: 0, ...value }
-              : structuredClone(value);
+              : this.table === 'map_objects'
+                ? { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...structuredClone(value) }
+                : structuredClone(value);
             tables[this.table].push(row);
             rows.push(row);
           }

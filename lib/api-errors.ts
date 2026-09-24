@@ -5,6 +5,7 @@ export type ApiErrorCode =
   | 'BACKEND_UNAVAILABLE'
   | 'PERMISSION_DENIED'
   | 'CAMPAIGN_NOT_FOUND'
+  | 'MAP_OBJECT_NOT_FOUND'
   | 'SCHEMA_NOT_READY'
   | 'SAVE_CONFLICT'
   | 'INVALID_REQUEST'
@@ -22,6 +23,7 @@ export const apiErrorText: Record<ApiErrorCode, string> = {
   BACKEND_UNAVAILABLE: '目前無法連線到 Supabase。請稍後重試。',
   PERMISSION_DENIED: '你沒有執行此操作的權限。',
   CAMPAIGN_NOT_FOUND: '找不到此戰役。請確認連結或重新整理戰役清單。',
+  MAP_OBJECT_NOT_FOUND: '找不到這個地圖註記，請重新載入戰役。',
   SCHEMA_NOT_READY: 'Supabase 資料表尚未建立。請先執行專案中的資料庫結構 SQL。',
   SAVE_CONFLICT: '另一個視窗已更新戰役。請先保留你的編輯，再重新載入。',
   INVALID_REQUEST: '送出的資料不完整或格式錯誤。',

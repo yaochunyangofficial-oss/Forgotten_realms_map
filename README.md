@@ -7,6 +7,7 @@ Bilingual Traditional Chinese / English Faerûn campaign map built with Next.js 
 - Explore the Sword Coast map, search locations, view place notes, and plan road or wilderness routes.
 - GM campaigns with editable place data, private GM notes, factions, territories, hidden locations, and revision-checked saves.
 - Player membership through invite codes and per-player private notes.
+- Map-coordinate text notes and approximate rumor / POI markers with GM-private, player-private, and shared visibility.
 - Import/export JSON campaign backups, bilingual UI, and saved language preference.
 
 ## Local development
@@ -32,13 +33,16 @@ Use a new Supabase project for a clean test deployment. The app does not need ex
 
 ### 1. Initialize the database
 
-In Supabase Dashboard → **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql) once. It creates:
+In Supabase Dashboard → **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql). For an existing project with the earlier DND Map schema, run the full file again: its `create table if not exists` statements add the new map-object table, and it refreshes the deny-by-default policies. It creates:
 
 - `public.campaigns`: GM owner, invite UUID, complete map JSON, revision, creation time.
 - `public.memberships`: campaign-to-player relationship.
 - `public.notes`: per-user place notes.
+- `public.map_objects`: campaign-independent map notes and POI markers, with map-space x/y, optional POI radius, label/content, creator, and visibility.
 
-RLS is enabled on all three tables. Explicit deny policies and revoked table grants prevent `anon` and `authenticated` clients from querying or changing campaign data directly. The Next.js server checks the signed-in Supabase user and campaign owner/membership before it uses its server-only secret/service-role key. Keep that key only in server environment variables; never send it to browser code. Do not add direct Data API policies unless the application is redesigned to enforce the same GM/player privacy rules in SQL.
+RLS is enabled on all four tables. Explicit deny policies and revoked table grants prevent `anon` and `authenticated` clients from querying or changing campaign data directly. The Next.js server checks the signed-in Supabase user and campaign owner/membership before it uses its server-only secret/service-role key. It filters `gm_private` objects out of player responses and returns `player_private` objects only to their creator (plus the GM); only the creator or GM can edit/delete an object. Keep that key only in server environment variables; never send it to browser code. Do not add direct Data API policies unless the application is redesigned to enforce the same GM/player privacy rules in SQL.
+
+Map objects use independent `map_objects` rows rather than campaign JSON, faction polygons, or location ids. Coordinates are normalized to the map image’s viewBox, so panning and zooming do not move the annotations. `lib/map-layers.ts` describes the stacking order: base map → factions → locations → reserved Fog of War slot → routes → notes/POI. The SVG groups follow that order; Fog of War itself is not implemented.
 
 ### 2. Configure Supabase Auth
 
@@ -79,7 +83,16 @@ pnpm typecheck
 pnpm build
 ```
 
-The automated API tests use an in-memory Supabase-shaped adapter. They cover authentication, create → read → update → reload persistence, revision conflicts, player joining, private notes, hidden places, authorization, and backup import. They do not prove a particular Supabase project’s keys, schema, email delivery, RLS state, or Vercel settings; verify those with the live checklist above.
+The automated API tests use an in-memory Supabase-shaped adapter. They cover authentication, campaign create → read → update → reload, map-object create/move/resize/delete → reload, shared and private visibility, player authorization, invitations, hidden places, and bilingual route calculation. They do not prove a particular Supabase project’s keys, schema, email delivery, RLS state, or Vercel settings; verify those with the live checklist above.
+
+## Testing a Vercel Preview
+
+1. Push this feature branch and wait for Vercel to build its branch Preview deployment.
+2. Add the three required Supabase variables from the [environment-variable table](#3-set-environment-variables) to Vercel’s **Preview** environment, then redeploy the Preview if needed.
+3. In Supabase Auth → URL Configuration, add that Preview deployment’s exact origin plus `/auth/callback` to **Redirect URLs**. Add a stable branch Preview domain there if your Vercel project provides one; otherwise add the current deployment URL and repeat when it changes.
+4. Sign in with a GM account, create or open a campaign, and use **Add map note** / **Add rumor / POI** on the map. Save each object, drag it, reload, and confirm it remains attached to its map coordinate. Use a player account joined by invite code to confirm shared markers appear while GM-private markers do not.
+
+No new environment variables are required for this feature. Running the schema SQL is required before the new `map_objects` queries will work.
 
 ## Error messages
 

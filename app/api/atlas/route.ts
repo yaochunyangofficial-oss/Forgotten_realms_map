@@ -57,6 +57,33 @@ async function campaignAccess(db: ReturnType<typeof database>, id: string, userI
   return { campaign, role: 'player' as const };
 }
 
+function mapObjectForClient(row: Record<string, any>, role: 'gm' | 'player', userId: string) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    x: row.x,
+    y: row.y,
+    radius: row.radius,
+    label: row.label,
+    content: row.content,
+    visibility: row.visibility,
+    editable: role === 'gm' || row.owner_id === userId,
+  };
+}
+
+function validMapObject(value: Record<string, any>) {
+  return (value.kind === 'note' || value.kind === 'poi')
+    && Number.isFinite(value.x) && value.x >= 0 && value.x <= 1000
+    && Number.isFinite(value.y) && value.y >= 0 && value.y <= 1000
+    && (value.kind === 'note'
+      ? value.radius == null
+      : Number.isFinite(value.radius) && value.radius >= 18 && value.radius <= 180)
+    && typeof value.label === 'string' && value.label.length <= 160
+    && typeof value.content === 'string' && value.content.length <= 20_000
+    && (value.kind !== 'note' || value.content.trim().length > 0)
+    && ['gm_private', 'player_private', 'shared'].includes(value.visibility);
+}
+
 export async function GET(req: Request) {
   try {
     const user = await identity();
@@ -80,12 +107,16 @@ export async function GET(req: Request) {
     }
 
     const { campaign, role } = await campaignAccess(db, id, user.id);
-    const { data: rows, error } = await db
+    const [{ data: rows, error }, { data: objectRows, error: objectError }] = await Promise.all([
+      db
       .from('notes')
       .select('location,body')
       .eq('campaign', id)
-      .eq('user_id', user.id);
+      .eq('user_id', user.id),
+      db.from('map_objects').select('*').eq('campaign', id),
+    ]);
     if (error) throw error;
+    if (objectError) throw objectError;
 
     const data = role === 'gm'
       ? campaign.data
@@ -99,6 +130,11 @@ export async function GET(req: Request) {
       revision: campaign.revision,
       data,
       notes: Object.fromEntries(rows.map((note: { location: string; body: string }) => [note.location, note.body])),
+      mapObjects: objectRows
+        .filter((object: { visibility: string; owner_id: string }) => role === 'gm'
+          || object.visibility === 'shared'
+          || (object.visibility === 'player_private' && object.owner_id === user.id))
+        .map((object: Record<string, any>) => mapObjectForClient(object, role, user.id)),
       ...(role === 'gm' ? { invite: campaign.invite } : {}),
     });
   } catch (error) {
@@ -183,6 +219,48 @@ export async function POST(req: Request) {
     if (typeof body.id !== 'string' || !body.id) throw new AtlasApiError('INVALID_REQUEST', 400);
     const { campaign, role } = await campaignAccess(db, body.id, user.id);
 
+    if (action === 'map-object') {
+      const operation = body.operation;
+      if (!['create', 'update', 'delete'].includes(operation)) throw new AtlasApiError('INVALID_REQUEST', 400);
+      let existing: Record<string, any> | null = null;
+      if (operation !== 'create') {
+        if (typeof body.objectId !== 'string' || !body.objectId) throw new AtlasApiError('INVALID_REQUEST', 400);
+        const { data, error } = await db.from('map_objects').select('*')
+          .eq('id', body.objectId).eq('campaign', body.id).maybeSingle();
+        if (error) throw error;
+        existing = data;
+        if (!existing) throw new AtlasApiError('MAP_OBJECT_NOT_FOUND', 404);
+        if (role !== 'gm' && existing.owner_id !== user.id) throw new AtlasApiError('PERMISSION_DENIED', 403);
+      }
+      if (operation === 'delete') {
+        const { error } = await db.from('map_objects').delete().eq('id', body.objectId).eq('campaign', body.id);
+        if (error) throw error;
+        return answer({ ok: true, objectId: body.objectId });
+      }
+
+      const object = body.object;
+      if (!object || typeof object !== 'object' || !validMapObject(object)) throw new AtlasApiError('INVALID_REQUEST', 400);
+      if (existing && object.kind !== existing.kind) throw new AtlasApiError('INVALID_REQUEST', 400);
+      if (object.visibility === 'gm_private' && role !== 'gm') throw new AtlasApiError('PERMISSION_DENIED', 403);
+      const values = {
+        kind: object.kind,
+        x: object.x,
+        y: object.y,
+        radius: object.kind === 'poi' ? object.radius : null,
+        label: object.label,
+        content: object.content,
+        visibility: object.visibility,
+        updated_at: new Date().toISOString(),
+      };
+      const query = existing
+        ? db.from('map_objects').update(values).eq('id', body.objectId).eq('campaign', body.id).select('*').single()
+        : db.from('map_objects').insert({ ...values, campaign: body.id, owner_id: user.id }).select('*').single();
+      const { data: saved, error } = await query;
+      if (error) throw error;
+      if (!saved) throw new AtlasApiError('SAVE_FAILED', 500);
+      return answer({ mapObject: mapObjectForClient(saved, role, user.id) });
+    }
+
     if (action === 'note') {
       const allowedPlace = campaign.data.places.some((place: { id: string; hidden?: boolean }) =>
         place.id === body.location && (role === 'gm' || !place.hidden));
@@ -215,7 +293,7 @@ export async function POST(req: Request) {
   } catch (error) {
     const fallback: ApiErrorCode = action === 'create' || action === 'import'
       ? 'CREATE_FAILED'
-      : action === 'save' || action === 'note' ? 'SAVE_FAILED' : 'INTERNAL_ERROR';
+      : action === 'save' || action === 'note' || action === 'map-object' ? 'SAVE_FAILED' : 'INTERNAL_ERROR';
     return fail(error, action, fallback);
   }
 }
