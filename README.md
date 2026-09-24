@@ -34,7 +34,7 @@ Use a new Supabase project for a clean test deployment. The app does not need ex
 
 ### 1. Initialize the database
 
-In Supabase Dashboard → **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql). For a running project with the prior schema, apply [`supabase/migrations/20260924_campaign_fog.sql`](supabase/migrations/20260924_campaign_fog.sql) once. Both use an idempotent `ALTER TABLE` to add the Fog JSON column. It creates:
+In Supabase Dashboard → **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql) for a fresh project. For an existing project, apply pending files in `supabase/migrations/` in filename order: [`20260924_campaign_fog.sql`](supabase/migrations/20260924_campaign_fog.sql) adds the Fog JSON column, and [`20260925_map_objects.sql`](supabase/migrations/20260925_map_objects.sql) adds map notes/POI storage and its RLS policy. These migrations are additive and safe to rerun. The schema contains:
 
 - `public.campaigns`: GM owner, invite UUID, complete map JSON, revision, Fog JSON state, creation time.
 - `public.memberships`: campaign-to-player relationship.
@@ -74,6 +74,8 @@ Never commit `.env.local`, a Supabase secret/service-role key, user passwords, o
 
 Import `yaochunyangofficial-oss/Forgotten_realms_map` as a Next.js project. In Vercel → **Project Settings → Environment Variables**, add the first three variables above (including the server-only `SUPABASE_SECRET_KEY`) to the intended **Development**, **Preview**, and **Production** environments. Set `NEXT_PUBLIC_SITE_URL` to the corresponding app origin if using it. Do not give the secret key a `NEXT_PUBLIC_` prefix. Redeploy after changing environment variables.
 
+Check each variable's environment scope explicitly: a variable configured only for Production is absent from Preview even when its name is correct. Vercel deployments do not apply Supabase SQL migrations. Deploy or promote application code only after the target Supabase project has the required schema.
+
 After deployment, open `/login`, create an account, and sign in. With an empty database, the map home offers **Create my GM campaign**. Creation returns the new campaign’s map, revision, and invite code in the same response, so the user enters it without a follow-up load. The invite code is shown in the GM sidebar. A player creates their own account, signs in, enters that code, and joins. The app can only persist campaigns after the schema and all required environment variables are configured.
 
 ## Verification
@@ -86,12 +88,20 @@ pnpm build
 
 The automated API tests use an in-memory Supabase-shaped adapter. They cover authentication, campaign create → read → update → reload, Fog default/toggle/paint/reveal/reset/reload and player authorization, map-object create/move/resize/delete → reload, shared and private visibility, invitations, hidden places, and bilingual route calculation. They do not prove a particular Supabase project’s keys, schema, email delivery, RLS state, or Vercel settings; verify those with the live checklist above.
 
+### Database release gate
+
+A feature requiring a schema change is **not complete** merely because tests, typecheck, and build pass. In the same feature branch/commit as its API change, add an incremental SQL file under `supabase/migrations/`, update `supabase/schema.sql` for fresh installs, and update [`supabase/check-schema.sql`](supabase/check-schema.sql) with every new required table/column/policy. Compare the API's queries and writes with all three before completion. `showFactionsToPlayers` is stored inside existing `campaigns.data` JSONB and mixed-route journeys stay in browser state, so neither needs a new SQL column.
+
+For each target environment, apply the pending SQL in Supabase SQL Editor **before** merging or promoting code that requires it. Run `supabase/check-schema.sql` in that same project; it must return zero rows. If PostgREST still reports stale metadata after an applied migration, run `notify pgrst, 'reload schema';` and repeat the check. Then smoke-test authenticated campaign creation, load, edit/save/reload, Fog persistence, faction visibility, notes/POI, and player access against the real backend. Record results and any untested steps in the change report. Do not merge into `main` if production schema is behind.
+
+This repository uses an explicit manual migration gate rather than automatic migration during a Vercel build: builds can run before promotion and cannot safely decide which live database to alter. Keep database admin credentials out of GitHub, Vercel client variables, and browser code. [`AGENTS.md`](AGENTS.md) repeats this release rule for future Codex sessions.
+
 ## Testing a Vercel Preview
 
 1. Push this feature branch and wait for Vercel to build its branch Preview deployment.
 2. Add the three required Supabase variables from the [environment-variable table](#3-set-environment-variables) to Vercel’s **Preview** environment, then redeploy the Preview if needed.
 3. In Supabase Auth → URL Configuration, add that Preview deployment’s exact origin plus `/auth/callback` to **Redirect URLs**. Add a stable branch Preview domain there if your Vercel project provides one; otherwise add the current deployment URL and repeat when it changes.
-4. Apply the Fog migration to the Preview database first. Sign in as GM, open **Fog of War**, turn it on, paint and reveal cells with mouse or touch drag, and reload to confirm persistence. Turn Fog off and back on to confirm its pattern is preserved. Test **Fog Entire Map** and **Reset Fog**; both show a confirmation dialog. As a player, confirm fogged areas are opaque and the Fog controls are unavailable. Add map notes and POIs to check they remain above Fog.
+4. Apply all pending migrations to the Supabase project used by Preview and run `supabase/check-schema.sql` there first. Sign in as GM, open **Fog of War**, turn it on, paint and reveal cells with mouse or touch drag, and reload to confirm persistence. Turn Fog off and back on to confirm its pattern is preserved. Test **Fog Entire Map** and **Reset Fog**; both show a confirmation dialog. As a player, confirm fogged areas are opaque and the Fog controls are unavailable. Add map notes and POIs to check they remain above Fog.
 
 No new environment variables are required for Fog. Apply the Fog schema update before using the Fog API. No new RLS policies are needed: the existing server checks GM ownership, while direct client access remains denied by current RLS/grants.
 
