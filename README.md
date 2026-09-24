@@ -7,6 +7,7 @@ Bilingual Traditional Chinese / English Faerûn campaign map built with Next.js 
 - Explore the Sword Coast map, search locations, view place notes, and plan road or wilderness routes.
 - GM campaigns with editable place data, private GM notes, factions, territories, hidden locations, and revision-checked saves.
 - Player membership through invite codes and per-player private notes.
+- Campaign Fog of War with a persistent map-coordinate grid, GM paint/reveal controls, and player-visible opaque masking.
 - Map-coordinate text notes and approximate rumor / POI markers with GM-private, player-private, and shared visibility.
 - Import/export JSON campaign backups, bilingual UI, and saved language preference.
 
@@ -33,16 +34,16 @@ Use a new Supabase project for a clean test deployment. The app does not need ex
 
 ### 1. Initialize the database
 
-In Supabase Dashboard → **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql). For an existing project with the earlier DND Map schema, run the full file again: its `create table if not exists` statements add the new map-object table, and it refreshes the deny-by-default policies. It creates:
+In Supabase Dashboard → **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql). For a running project with the prior schema, apply [`supabase/migrations/20260924_campaign_fog.sql`](supabase/migrations/20260924_campaign_fog.sql) once. Both use an idempotent `ALTER TABLE` to add the Fog JSON column. It creates:
 
-- `public.campaigns`: GM owner, invite UUID, complete map JSON, revision, creation time.
+- `public.campaigns`: GM owner, invite UUID, complete map JSON, revision, Fog JSON state, creation time.
 - `public.memberships`: campaign-to-player relationship.
 - `public.notes`: per-user place notes.
 - `public.map_objects`: campaign-independent map notes and POI markers, with map-space x/y, optional POI radius, label/content, creator, and visibility.
 
 RLS is enabled on all four tables. Explicit deny policies and revoked table grants prevent `anon` and `authenticated` clients from querying or changing campaign data directly. The Next.js server checks the signed-in Supabase user and campaign owner/membership before it uses its server-only secret/service-role key. It filters `gm_private` objects out of player responses and returns `player_private` objects only to their creator (plus the GM); only the creator or GM can edit/delete an object. Keep that key only in server environment variables; never send it to browser code. Do not add direct Data API policies unless the application is redesigned to enforce the same GM/player privacy rules in SQL.
 
-Map objects use independent `map_objects` rows rather than campaign JSON, faction polygons, or location ids. Coordinates are normalized to the map image’s viewBox, so panning and zooming do not move the annotations. `lib/map-layers.ts` describes the stacking order: base map → factions → locations → reserved Fog of War slot → routes → notes/POI. The SVG groups follow that order; Fog of War itself is not implemented.
+Map objects use independent `map_objects` rows rather than campaign JSON, faction polygons, or location ids. Coordinates are normalized to the map image’s viewBox, so panning and zooming do not move the annotations. `lib/map-layers.ts` describes the stacking order: base map → factions → locations → Fog of War → routes → notes/POI. The SVG groups follow that order. Fog uses a sparse inverse grid representation in `campaigns.fog` (`enabled`, `baseFogged`, and exception cell indices), so fogging an entire map requires no per-cell rows. The centralized cell size is 28 map units (about 10 map miles); across the 1000 × 647 map viewBox, this yields a 36 × 24 grid. Coordinates and cell size are independent of screen size. Turning Fog off keeps the pattern. Fog reset clears only this column.
 
 ### 2. Configure Supabase Auth
 
@@ -83,16 +84,16 @@ pnpm typecheck
 pnpm build
 ```
 
-The automated API tests use an in-memory Supabase-shaped adapter. They cover authentication, campaign create → read → update → reload, map-object create/move/resize/delete → reload, shared and private visibility, player authorization, invitations, hidden places, and bilingual route calculation. They do not prove a particular Supabase project’s keys, schema, email delivery, RLS state, or Vercel settings; verify those with the live checklist above.
+The automated API tests use an in-memory Supabase-shaped adapter. They cover authentication, campaign create → read → update → reload, Fog default/toggle/paint/reveal/reset/reload and player authorization, map-object create/move/resize/delete → reload, shared and private visibility, invitations, hidden places, and bilingual route calculation. They do not prove a particular Supabase project’s keys, schema, email delivery, RLS state, or Vercel settings; verify those with the live checklist above.
 
 ## Testing a Vercel Preview
 
 1. Push this feature branch and wait for Vercel to build its branch Preview deployment.
 2. Add the three required Supabase variables from the [environment-variable table](#3-set-environment-variables) to Vercel’s **Preview** environment, then redeploy the Preview if needed.
 3. In Supabase Auth → URL Configuration, add that Preview deployment’s exact origin plus `/auth/callback` to **Redirect URLs**. Add a stable branch Preview domain there if your Vercel project provides one; otherwise add the current deployment URL and repeat when it changes.
-4. Sign in with a GM account, create or open a campaign, and use **Add map note** / **Add rumor / POI** on the map. Save each object, drag it, reload, and confirm it remains attached to its map coordinate. Use a player account joined by invite code to confirm shared markers appear while GM-private markers do not.
+4. Apply the Fog migration to the Preview database first. Sign in as GM, open **Fog of War**, turn it on, paint and reveal cells with mouse or touch drag, and reload to confirm persistence. Turn Fog off and back on to confirm its pattern is preserved. Test **Fog Entire Map** and **Reset Fog**; both show a confirmation dialog. As a player, confirm fogged areas are opaque and the Fog controls are unavailable. Add map notes and POIs to check they remain above Fog.
 
-No new environment variables are required for this feature. Running the schema SQL is required before the new `map_objects` queries will work.
+No new environment variables are required for Fog. Apply the Fog schema update before using the Fog API. No new RLS policies are needed: the existing server checks GM ownership, while direct client access remains denied by current RLS/grants.
 
 ## Error messages
 

@@ -65,7 +65,7 @@ class Query {
             rows.push(existing);
           } else {
             const row = this.table === 'campaigns'
-              ? { id: crypto.randomUUID(), invite: crypto.randomUUID(), revision: 0, ...value }
+              ? { id: crypto.randomUUID(), invite: crypto.randomUUID(), revision: 0, fog: { enabled: false, baseFogged: false, exceptions: [] }, ...value }
               : this.table === 'map_objects'
                 ? { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...structuredClone(value) }
                 : structuredClone(value);

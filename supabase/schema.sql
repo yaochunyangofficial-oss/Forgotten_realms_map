@@ -9,9 +9,13 @@ create table if not exists public.campaigns (
   owner uuid not null references auth.users(id) on delete cascade,
   invite uuid not null unique default gen_random_uuid(),
   data jsonb not null,
+  fog jsonb not null default '{"enabled":false,"baseFogged":false,"exceptions":[]}'::jsonb,
   revision integer not null default 0 check (revision >= 0),
   created_at timestamptz not null default now()
 );
+
+alter table public.campaigns
+  add column if not exists fog jsonb not null default '{"enabled":false,"baseFogged":false,"exceptions":[]}'::jsonb;
 
 create table if not exists public.memberships (
   campaign uuid not null references public.campaigns(id) on delete cascade,
