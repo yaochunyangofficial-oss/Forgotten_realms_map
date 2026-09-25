@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/run.mjs"
+    "test": "node tests/run.mjs && node tests/layer-contract.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

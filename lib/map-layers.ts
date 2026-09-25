@@ -11,4 +11,7 @@ export const MAP_LAYER_ORDER = [
   'map-objects',
 ] as const;
 
+export const MAP_PLANE_ORDER = ['world', 'fog', 'knowledge'] as const;
+export const PLAYER_FOG_COLOR = '#384b55';
+
 export type MapLayer = typeof MAP_LAYER_ORDER[number];

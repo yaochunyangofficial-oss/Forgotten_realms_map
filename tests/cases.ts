@@ -5,7 +5,7 @@ import { initialData } from '../lib/geography';
 import { planRoute } from '../lib/routing';
 import { planJourney, type JourneyWaypoint } from '../lib/journey';
 import { milesPerUnit } from '../lib/geography';
-import { MAP_LAYER_ORDER } from '../lib/map-layers';
+import { MAP_LAYER_ORDER, MAP_PLANE_ORDER, PLAYER_FOG_COLOR } from '../lib/map-layers';
 import { FOG_CELL_COUNT, FOG_CELL_SIZE, fogCellAt, isFoggedCell } from '../lib/fog';
 
 const get = (id = '') => GET(new Request('https://map.test/api/atlas' + (id ? '?id=' + id : '')));
@@ -17,6 +17,8 @@ const post = (body: unknown) => POST(new Request('https://map.test/api/atlas', {
 
 resetFake();
 assert.deepEqual(MAP_LAYER_ORDER, ['base-map', 'factions', 'locations', 'fog-of-war', 'routes', 'map-objects']);
+assert.deepEqual(MAP_PLANE_ORDER, ['world', 'fog', 'knowledge']);
+assert.equal(PLAYER_FOG_COLOR, '#384b55');
 assert.equal(FOG_CELL_SIZE, 28);
 assert.equal(FOG_CELL_COUNT, 864);
 const yartarFogCell = fogCellAt([486.463, 145.183]);
