@@ -60,7 +60,13 @@ async function campaignAccess(db: ReturnType<typeof database>, id: string, userI
   return { campaign, role: 'player' as const };
 }
 
-function mapObjectForClient(row: Record<string, any>, role: 'gm' | 'player', userId: string) {
+function playerCampaignData(data: Record<string, any>) {
+  return { ...data, territories: data.showFactionsToPlayers === false ? [] : data.territories, places: data.places
+    .filter((place: { hidden?: boolean }) => !place.hidden)
+    .map(({ gmNotes: _gmNotes, ...place }: { gmNotes?: string; [key: string]: unknown }) => place) };
+}
+
+function mapObjectForClient(row: Record<string, any>, role: 'gm' | 'player' | 'guest', userId: string) {
   return {
     id: row.id,
     kind: row.kind,
@@ -70,7 +76,7 @@ function mapObjectForClient(row: Record<string, any>, role: 'gm' | 'player', use
     label: row.label,
     content: row.content,
     visibility: row.visibility,
-    editable: role === 'gm' || row.owner_id === userId,
+    editable: role === 'gm' || role === 'player' && row.owner_id === userId,
   };
 }
 
@@ -121,11 +127,7 @@ export async function GET(req: Request) {
     if (error) throw error;
     if (objectError) throw objectError;
 
-    const data = role === 'gm'
-      ? campaign.data
-      : { ...campaign.data, territories: campaign.data.showFactionsToPlayers === false ? [] : campaign.data.territories, places: campaign.data.places
-        .filter((place: { hidden?: boolean }) => !place.hidden)
-        .map(({ gmNotes: _gmNotes, ...place }: { gmNotes?: string; [key: string]: unknown }) => place) };
+    const data = role === 'gm' ? campaign.data : playerCampaignData(campaign.data);
 
     return answer({
       id,
@@ -156,7 +158,6 @@ export async function POST(req: Request) {
   try {
     const origin = req.headers.get('origin');
     if (origin && origin !== new URL(req.url).origin) throw new AtlasApiError('ORIGIN_MISMATCH', 403);
-    const user = await identity();
     const text = await req.text();
     if (text.length > 1_500_000) throw new AtlasApiError('INVALID_REQUEST', 413);
     let body: Record<string, any>;
@@ -166,6 +167,33 @@ export async function POST(req: Request) {
       throw new AtlasApiError('INVALID_REQUEST', 400);
     }
     action = typeof body.action === 'string' ? body.action : 'unknown';
+    if (action === 'guest') {
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (typeof body.id !== 'string' || !uuid.test(body.id)
+        || typeof body.token !== 'string' || !uuid.test(body.token)) {
+        throw new AtlasApiError('INVITE_INVALID', 404);
+      }
+      const guestDb = database();
+      const { data: campaign, error } = await guestDb.from('campaigns')
+        .select('id,data,revision,fog').eq('id', body.id).eq('invite', body.token).maybeSingle();
+      if (error) throw error;
+      if (!campaign) throw new AtlasApiError('INVITE_INVALID', 404);
+      const { data: objects, error: objectError } = await guestDb.from('map_objects')
+        .select('*').eq('campaign', campaign.id).eq('visibility', 'shared');
+      if (objectError) throw objectError;
+      return answer({
+        id: campaign.id,
+        role: 'guest',
+        revision: campaign.revision,
+        data: playerCampaignData(campaign.data),
+        notes: {},
+        fog: campaign.fog?.enabled ? normalizeFogState(campaign.fog) : { ...DEFAULT_FOG_STATE },
+        mapObjects: objects
+          .sort((a: { created_at?: string; id: string }, b: { created_at?: string; id: string }) => (a.created_at || '').localeCompare(b.created_at || '') || a.id.localeCompare(b.id))
+          .map((object: Record<string, any>) => mapObjectForClient(object, 'guest', '')),
+      });
+    }
+    const user = await identity();
     const db = database();
 
     if (action === 'create' || action === 'import') {

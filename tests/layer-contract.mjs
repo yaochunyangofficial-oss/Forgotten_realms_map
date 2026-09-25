@@ -28,6 +28,6 @@ assert.doesNotMatch(source, /paintOrder="stroke" filter="url\(#poi-soft-glow\)"/
 assert.match(source, /if\(!canManageObject\(object\)\)\{e\.stopPropagation\(\);return\}/);
 assert.match(source, /if\(!current\.moved\)\{if\(object\)openMapObject\(object\);return\}/);
 assert.match(source, /displayMapObjects\.filter\(object=>object\.kind!=='poi'\|\|showPois\)/);
-assert.match(source, /if\(routePick\)\{selectPoiWaypoint\(object\);return\}/);
+assert.match(source, /if\(routePick\|\|routeDestinationPick\)\{selectPoiWaypoint\(object\);return\}/);
 assert.match(source, /<Checkbox checked=\{showPois\} onCheckedChange=\{v=>setShowPois\(v===true\)\}/);
 console.log('PASS: SVG world, opaque Fog, and player-knowledge paint order; crisp POI and screen-width routes.');

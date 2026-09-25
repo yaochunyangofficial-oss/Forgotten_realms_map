@@ -7,6 +7,7 @@ Bilingual Traditional Chinese / English Faerûn campaign map built with Next.js 
 - Explore the Sword Coast map, search locations, view place notes, and plan road or wilderness routes.
 - GM campaigns with editable place data, private GM notes, factions, territories, hidden locations, and revision-checked saves.
 - Player membership through invite codes and per-player private notes.
+- Guest campaign links for viewing player-visible content and planning routes without an account.
 - Campaign Fog of War with a persistent map-coordinate grid, GM paint/reveal controls, and player-visible opaque masking.
 - Map-coordinate text notes and approximate rumor / POI markers with GM-private, player-private, and shared visibility.
 - Import/export JSON campaign backups, bilingual UI, and saved language preference.
@@ -41,7 +42,7 @@ In Supabase Dashboard → **SQL Editor**, run [`supabase/schema.sql`](supabase/s
 - `public.notes`: per-user place notes.
 - `public.map_objects`: campaign-independent map notes and POI markers, with map-space x/y, optional POI radius, label/content, creator, and visibility.
 
-RLS is enabled on all four tables. Explicit deny policies and revoked table grants prevent `anon` and `authenticated` clients from querying or changing campaign data directly. The Next.js server checks the signed-in Supabase user and campaign owner/membership before it uses its server-only secret/service-role key. It filters `gm_private` objects out of player responses and returns `player_private` objects only to their creator (plus the GM); only the creator or GM can edit/delete an object. Keep that key only in server environment variables; never send it to browser code. Do not add direct Data API policies unless the application is redesigned to enforce the same GM/player privacy rules in SQL.
+RLS is enabled on all four tables. Explicit deny policies and revoked table grants prevent `anon` and `authenticated` clients from querying or changing campaign data directly. The Next.js server checks the signed-in Supabase user and campaign owner/membership for account access, or checks the campaign ID plus invite UUID for read-only guest access, before it uses its server-only secret/service-role key. It filters `gm_private` objects out of player responses and returns `player_private` objects only to their creator (plus the GM); only the creator or GM can edit/delete an object. Keep that key only in server environment variables; never send it to browser code. Do not add direct Data API policies unless the application is redesigned to enforce the same GM/player privacy rules in SQL.
 
 Map objects use independent `map_objects` rows rather than campaign JSON, faction polygons, or location ids. Coordinates are normalized to the map image’s viewBox, so panning and zooming do not move the annotations. `lib/map-layers.ts` describes the stacking order: base map → factions → locations → Fog of War → routes → notes/POI. The SVG groups follow that order. Fog uses a sparse inverse grid representation in `campaigns.fog` (`enabled`, `baseFogged`, and exception cell indices), so fogging an entire map requires no per-cell rows. The centralized cell size is 28 map units (about 10 map miles); across the 1000 × 647 map viewBox, this yields a 36 × 24 grid. Coordinates and cell size are independent of screen size. Turning Fog off keeps the pattern. Fog reset clears only this column.
 
@@ -55,7 +56,7 @@ In **Authentication → URL Configuration**:
 - Add callback URLs to **Redirect URLs**: `http://localhost:3000/auth/callback`, your production URL ending in `/auth/callback`, and any Vercel preview URL patterns you plan to use.
 - Keep email confirmation enabled for production and configure reliable email delivery. A new user follows the confirmation link before signing in. For a private test project, you may turn confirmation off if you want new accounts to sign in immediately.
 
-The callback exchanges Supabase’s one-time code for the authenticated cookie session. Campaign API requests use `auth.getUser()` to verify that session; no account or campaign owner is inferred from client input.
+The callback exchanges Supabase’s one-time code for the authenticated cookie session. Authenticated campaign API requests use `auth.getUser()` to verify that session; no account or campaign owner is inferred from client input. Guest access uses the campaign's existing invite UUID as a link token and is restricted to a read-only player view by the server.
 
 ### 3. Set environment variables
 
@@ -77,6 +78,8 @@ Import `yaochunyangofficial-oss/Forgotten_realms_map` as a Next.js project. In V
 Check each variable's environment scope explicitly: a variable configured only for Production is absent from Preview even when its name is correct. Vercel deployments do not apply Supabase SQL migrations. Deploy or promote application code only after the target Supabase project has the required schema.
 
 After deployment, open `/login`, create an account, and sign in. With an empty database, the map home offers **Create my GM campaign**. Creation returns the new campaign’s map, revision, and invite code in the same response, so the user enters it without a follow-up load. The invite code is shown in the GM sidebar. A player creates their own account, signs in, enters that code, and joins. The app can only persist campaigns after the schema and all required environment variables are configured.
+
+For account-free viewing, the GM opens **Player invite code** in the sidebar and copies **Guest link**. Send the entire URL to players. It contains the campaign ID and an invite token in the URL fragment. A guest can see the same player-visible places, faction areas (when enabled), Fog, shared map notes and POIs, and can plan routes. Guests cannot save personal notes or markers or change the campaign. A campaign ID alone does not grant access. Treat the full guest link like an invitation: anyone holding it can view that campaign's player-visible content. The token is sent only in the guest API request body and is not stored in a browser cookie. This feature uses the existing `campaigns.invite` column and needs no SQL migration.
 
 ## Verification
 
