@@ -1,6 +1,7 @@
 import type {Place} from './types';
 export type Locale='zh'|'en';
 export const english:Record<string,string>={"登入":"Sign in","戰役已匯入":"Campaign imported","匯入戰役備份":"Import campaign backup","備份格式不符":"Invalid backup format",
+  "顯示 POI": "Show POIs", "點選地點或 POI 加入旅程": "Select a location or POI to add to the journey",
   "Fog of War": "Fog of War", "map cells": "map cells", "Fog controls are GM-only. Paint or reveal map cells; strokes save together when you lift the pointer.": "Fog controls are GM-only. Paint or reveal map cells; each stroke saves when you lift the pointer.", "Turn Fog On": "Turn Fog On", "Turn Fog Off": "Turn Fog Off", "Paint Fog": "Paint Fog", "Reveal": "Reveal", "Bulk Actions": "Bulk actions", "Fog Entire Map": "Fog Entire Map", "Reset Fog": "Reset Fog", "Fog the entire map?": "Fog the entire map?", "Reset all Fog of War for this campaign? This cannot be undone.": "Reset all Fog of War for this campaign? This cannot be undone.", "Fog saved": "Fog saved", "Fog changes pending": "Fog changes pending", "Saving fog…": "Saving fog…", "Fog save failed": "Fog save failed", "Retry save": "Retry save",
 "城鎮 / 據點":"Town / Settlement","區域":"Region","森林":"Forest","聖塚":"Ancestral mound","道路":"Road","山地":"Mountains","水域 / 濕地":"Water / Wetlands","移動地點":"Mobile location","匯出戰役備份":"Export campaign backup",
   "點擊地圖設定註記位置": "Click the map to place a note",

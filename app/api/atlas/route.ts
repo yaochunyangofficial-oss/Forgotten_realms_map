@@ -137,6 +137,7 @@ export async function GET(req: Request) {
         ? normalizeFogState(campaign.fog)
         : { ...DEFAULT_FOG_STATE },
       mapObjects: objectRows
+        .sort((a: { created_at?: string; id: string }, b: { created_at?: string; id: string }) => (a.created_at || '').localeCompare(b.created_at || '') || a.id.localeCompare(b.id))
         .filter((object: { visibility: string; owner_id: string }) => role === 'gm'
           || object.visibility === 'shared'
           || (object.visibility === 'player_private' && object.owner_id === user.id))

@@ -3,7 +3,7 @@ import { planRoute } from './routing';
 import type { Place, Point } from './types';
 import type { Locale } from './i18n';
 
-export type JourneyWaypoint = { kind: 'place'; id: string } | { kind: 'point'; id: string; point: Point };
+export type JourneyWaypoint = { kind: 'place'; id: string } | { kind: 'point'; id: string; point: Point; name?: string };
 export type SegmentMode = 'road' | 'cross_country';
 export type JourneySegment = { mode: SegmentMode; points: Point[]; miles: number; days: number; error?: string };
 export type JourneyResult = { segments: JourneySegment[]; roadMiles: number; crossCountryMiles: number; miles: number; days: number; points: Point[] };

@@ -4,6 +4,7 @@ import { failNextQuery, resetFake, setAuthFailure, setConfigured, setUser } from
 import { initialData } from '../lib/geography';
 import { planRoute } from '../lib/routing';
 import { planJourney, type JourneyWaypoint } from '../lib/journey';
+import { poiWaypoint } from '../lib/poi-waypoint';
 import { milesPerUnit } from '../lib/geography';
 import { MAP_LAYER_ORDER, MAP_PLANE_ORDER, PLAYER_FOG_COLOR } from '../lib/map-layers';
 import { FOG_CELL_COUNT, FOG_CELL_SIZE, fogCellAt, isFoggedCell } from '../lib/fog';
@@ -276,4 +277,17 @@ const changedMode = planJourney([triboar, roadPoint, yartar], ['road', 'cross_co
 assert.equal(changedMode.segments[0].miles, manualJourney.segments[0].miles);
 assert.equal(changedMode.segments[1].mode, 'cross_country');
 assert.equal(changedMode.miles, changedMode.roadMiles+changedMode.crossCountryMiles);
+const poiObjects = [
+  { ...poi, id: 'first-poi', x: 50, y: 50, label: 'Eye of the All-Father' },
+  { ...poi, id: 'second-poi', x: 510, y: 260, label: '   ' },
+];
+const labeledPoi = poiWaypoint(poiObjects[0], poiObjects);
+const unnamedPoi = poiWaypoint(poiObjects[1], poiObjects);
+assert.deepEqual(labeledPoi, { kind: 'point', id: 'first-poi', point: [50, 50], name: 'Eye of the All-Father' });
+assert.deepEqual(unnamedPoi, { kind: 'point', id: 'second-poi', point: [510, 260], name: 'POI 2' });
+const poiRoute = planJourney([triboar, labeledPoi, unnamedPoi, yartar], ['road', 'cross_country', 'cross_country'], initialData.places, 'en');
+assert.ok(poiRoute.segments[0].error);
+assert.equal(poiRoute.segments[1].error, undefined);
+assert.deepEqual(poiRoute.segments[1].points, [[50, 50], [510, 260]]);
+assert.deepEqual(labeledPoi, poiWaypoint(poiObjects[0], [...poiObjects]));
 console.log('PASS: campaign create/save/reload, fog toggle/grid paint/reveal/reset/persistence/authorization, map object create/move/resize/delete/reload, shared and private visibility, invites, backup import, bilingual and segment-based mixed routing. In-memory adapter; live Supabase still requires project configuration.');
