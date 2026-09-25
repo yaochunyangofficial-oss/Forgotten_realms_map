@@ -19,3 +19,4 @@
 
 @media(max-width:360px){.segment-modes{grid-template-columns:1fr;gap:8px}.segment-modes button{min-height:48px}}
 @media(max-width:480px){.map-options{flex-wrap:wrap;gap:8px 13px;max-width:calc(100vw - 82px)}}
+.route-place-picker{display:block;width:100%;min-width:0;flex:1;color:#edf0e7;border:1px solid #4a636b;border-radius:5px;padding:0 10px;white-space:nowrap;text-overflow:ellipsis;cursor:pointer;touch-action:manipulation}.route-place-picker option{background:#19353f;color:#edf0e7}
