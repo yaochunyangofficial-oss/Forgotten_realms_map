@@ -1,6 +1,7 @@
 import type {Place} from './types';
 export type Locale='zh'|'en';
 export const english:Record<string,string>={"登入":"Sign in","戰役已匯入":"Campaign imported","匯入戰役備份":"Import campaign backup","備份格式不符":"Invalid backup format",
+  "訪客視角 · 可規劃路線": "Guest view · route planning", "訪客連結缺少戰役編號。請向 GM 索取新連結。": "The guest link is missing a campaign ID. Ask the GM for a new link.", "此訪客連結無法開啟。請確認連結完整，或向 GM 索取新連結。": "This guest link could not be opened. Check the full link or ask the GM for a new one.", "持有下方連結的人可免登入查看玩家可見內容及規劃路線。請只分享給玩家。": "Anyone with this link can view player-visible content and plan routes without signing in. Share it only with players.", "訪客連結已複製": "Guest link copied", "複製訪客連結": "Copy guest link", "訪客可查看地圖與規劃路線；個人筆記需要登入。": "Guests can view the map and plan routes. Sign in to save personal notes.",
   "顯示 POI": "Show POIs", "點選地點或 POI 加入旅程": "Select a location or POI to add to the journey",
   "地圖選終點 B": "Select destination B", "地圖新增終點 B": "Add map destination B", "對調起點與終點": "Reverse journey", "已設為終點：": "Destination set: ", "點選地點或 POI 設為終點 B": "Select a location or POI for destination B", "點擊地圖設定終點 B": "Tap map to set destination B",
   "改選地點": "Choose a location instead",

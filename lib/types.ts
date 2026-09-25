@@ -6,4 +6,4 @@ export type AtlasData={places:Place[];factions:Faction[];territories:Territory[]
 export type MapObjectKind='note'|'poi';
 export type MapObjectVisibility='gm_private'|'player_private'|'shared';
 export type MapObject={id:string;kind:MapObjectKind;x:number;y:number;radius:number|null;label:string;content:string;visibility:MapObjectVisibility;editable:boolean};
-export type Session={id:string;role:'gm'|'player';revision:number;data:AtlasData;notes:Record<string,string>;invite?:string};
+export type Session={id:string;role:'gm'|'player'|'guest';revision:number;data:AtlasData;notes:Record<string,string>;invite?:string};
